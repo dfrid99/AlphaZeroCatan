@@ -1,0 +1,37 @@
+version: "3.3"
+services:
+  db:
+    platform: linux/amd64
+    image: postgres
+    environment:
+      - POSTGRES_USER=catanatron
+      - POSTGRES_PASSWORD=victorypoint
+      - POSTGRES_DB=catanatron_db
+    ports:
+      - 5432:5432
+  server:
+    image: bcollazo/catanatron-server:latest
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    environment:
+      - DATABASE_URL=postgresql://catanatron:victorypoint@db:5432/catanatron_db
+      - PYTHONUNBUFFERED=1
+    ports:
+      - 5001:5001
+    stdin_open: true
+    volumes:
+      - .:/app
+    depends_on:
+      - "db"
+  react-ui:
+    image: bcollazo/catanatron-react-ui:latest
+    platform: linux/amd64
+    build: ./ui
+    ports:
+      - 3000:3000
+    stdin_open: true
+    volumes:
+      - /app/node_modules
+      - ./ui:/app

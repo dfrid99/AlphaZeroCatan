@@ -1,0 +1,30 @@
+@import "../variables.scss";
+
+.home-page {
+  height: 100%;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
+  h1 {
+    color: white;
+    font-size: 2.5rem;
+    margin-bottom: 0px;
+  }
+  ul {
+    color: white;
+  }
+
+  .switchable {
+    height: 224px; // NOTE: Fixed to avoid loading jump
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    button {
+      margin-bottom: $sm-gutter;
+    }
+  }
+}

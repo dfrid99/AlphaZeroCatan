@@ -1,0 +1,331 @@
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useContext,
+  useCallback,
+} from "react";
+import memoize from "fast-memoize";
+import { Button, Hidden } from "@material-ui/core";
+import ChevronLeftIcon from "@material-ui/icons/ChevronLeft";
+import AccountBalanceIcon from "@material-ui/icons/AccountBalance";
+import BuildIcon from "@material-ui/icons/Build";
+import NavigateNextIcon from "@material-ui/icons/NavigateNext";
+import MenuItem from "@material-ui/core/MenuItem";
+import ClickAwayListener from "@material-ui/core/ClickAwayListener";
+import Grow from "@material-ui/core/Grow";
+import Paper from "@material-ui/core/Paper";
+import Popper from "@material-ui/core/Popper";
+import MenuList from "@material-ui/core/MenuList";
+import SimCardIcon from "@material-ui/icons/SimCard";
+import { useParams } from "react-router";
+
+import { ResourceCards } from "../components/PlayerStateBox";
+import Prompt, { humanizeTradeAction } from "../components/Prompt";
+import { store } from "../store";
+import ACTIONS from "../actions";
+import { getHumanColor, playerKey } from "../utils/stateUtils";
+import { postAction } from "../utils/apiClient";
+
+import "./ActionsToolbar.scss";
+import { useSnackbar } from "notistack";
+import { dispatchSnackbar } from "../components/Snackbar";
+
+function PlayButtons() {
+  const { gameId } = useParams();
+  const { state, dispatch } = useContext(store);
+  const { enqueueSnackbar, closeSnackbar } = useSnackbar();
+
+  const carryOutAction = useCallback(
+    memoize((action) => async () => {
+      const gameState = await postAction(gameId, action);
+      dispatch({ type: ACTIONS.SET_GAME_STATE, data: gameState });
+      dispatchSnackbar(enqueueSnackbar, closeSnackbar, gameState);
+    }),
+    [enqueueSnackbar, closeSnackbar]
+  );
+
+  const { gameState } = state;
+  const key = playerKey(gameState, gameState.current_color);
+  const isRoll =
+    gameState.current_prompt === "PLAY_TURN" &&
+    !gameState.player_state[`${key}_HAS_ROLLED`];
+  const isDiscard = gameState.current_prompt === "DISCARD";
+  const isMove = gameState.current_prompt === "MOVE_ROBBER";
+  const playableDevCardTypes = new Set(
+    gameState.current_playable_actions
+      .filter((action) => action[1].startsWith("PLAY"))
+      .map((action) => action[1])
+  );
+  const useItems = [
+    {
+      label: "Monopoly",
+      disabled: !playableDevCardTypes.has("PLAY_MONOPOLY"),
+    },
+    {
+      label: "Year of Plenty",
+      disabled: !playableDevCardTypes.has("PLAY_YEAR_OF_PLENTY"),
+    },
+    {
+      label: "Road Building",
+      disabled: !playableDevCardTypes.has("PLAY_ROAD_BUILDING"),
+    },
+    {
+      label: "Knight",
+      disabled: !playableDevCardTypes.has("PLAY_KNIGHT_CARD"),
+    },
+  ];
+
+  const buildActionTypes = new Set(
+    state.gameState.is_initial_build_phase
+      ? []
+      : state.gameState.current_playable_actions
+          .filter(
+            (action) =>
+              action[1].startsWith("BUY") || action[1].startsWith("BUILD")
+          )
+          .map((a) => a[1])
+  );
+  const humanColor = getHumanColor(state.gameState);
+  const buyDevCard = useCallback(async () => {
+    const action = [humanColor, "BUY_DEVELOPMENT_CARD", null];
+    const gameState = await postAction(gameId, action);
+    dispatch({ type: ACTIONS.SET_GAME_STATE, data: gameState });
+    dispatchSnackbar(enqueueSnackbar, closeSnackbar, gameState);
+  }, [gameId, dispatch, enqueueSnackbar, closeSnackbar, humanColor]);
+  const setIsBuildingSettlement = useCallback(() => {
+    dispatch({ type: ACTIONS.SET_IS_BUILDING_SETTLEMENT });
+  }, [dispatch]);
+  const setIsBuildingCity = useCallback(() => {
+    dispatch({ type: ACTIONS.SET_IS_BUILDING_CITY });
+  }, [dispatch]);
+  const setIsBuildingRoad = useCallback(() => {
+    dispatch({ type: ACTIONS.SET_IS_BUILDING_ROAD });
+  }, [dispatch]);
+  const buildItems = [
+    {
+      label: "Development Card",
+      disabled: !buildActionTypes.has("BUY_DEVELOPMENT_CARD"),
+      onClick: buyDevCard,
+    },
+    {
+      label: "City",
+      disabled: !buildActionTypes.has("BUILD_CITY"),
+      onClick: setIsBuildingCity,
+    },
+    {
+      label: "Settlement",
+      disabled: !buildActionTypes.has("BUILD_SETTLEMENT"),
+      onClick: setIsBuildingSettlement,
+    },
+    {
+      label: "Road",
+      disabled: !buildActionTypes.has("BUILD_ROAD"),
+      onClick: setIsBuildingRoad,
+    },
+  ];
+
+  const tradeActions = state.gameState.current_playable_actions.filter(
+    (action) => action[1] === "MARITIME_TRADE"
+  );
+  const tradeItems = tradeActions.map((action) => {
+    const label = humanizeTradeAction(action);
+    return {
+      label: label,
+      disabled: false,
+      onClick: carryOutAction(action),
+    };
+  });
+
+  const rollAction = carryOutAction([humanColor, "ROLL", null]);
+  const proceedAction = carryOutAction();
+  const endTurnAction = carryOutAction([humanColor, "END_TURN", null]);
+  return (
+    <>
+      <OptionsButton
+        disabled={playableDevCardTypes.size === 0}
+        menuListId="use-menu-list"
+        icon={<SimCardIcon />}
+        items={useItems}
+      >
+        Use
+      </OptionsButton>
+      <OptionsButton
+        disabled={buildActionTypes.size === 0}
+        menuListId="build-menu-list"
+        icon={<BuildIcon />}
+        items={buildItems}
+      >
+        Buy
+      </OptionsButton>
+      <OptionsButton
+        disabled={tradeItems.length === 0}
+        menuListId="trade-menu-list"
+        icon={<AccountBalanceIcon />}
+        items={tradeItems}
+      >
+        Trade
+      </OptionsButton>
+      <Button
+        disabled={gameState.is_initial_build_phase}
+        variant="contained"
+        color="primary"
+        startIcon={<NavigateNextIcon />}
+        onClick={
+          isRoll
+            ? rollAction
+            : isDiscard || isMove
+            ? proceedAction
+            : endTurnAction
+        }
+      >
+        {isRoll ? "ROLL" : isDiscard ? "DISCARD" : isMove ? "ROB" : "END"}
+      </Button>
+    </>
+  );
+}
+
+export default function ActionsToolbar({
+  zoomIn,
+  zoomOut,
+  isBotThinking,
+  replayMode,
+}) {
+  const { state, dispatch } = useContext(store);
+
+  const openLeftDrawer = useCallback(() => {
+    dispatch({
+      type: ACTIONS.SET_LEFT_DRAWER_OPENED,
+      data: true,
+    });
+  }, [dispatch]);
+
+  const botsTurn = state.gameState.bot_colors.includes(
+    state.gameState.current_color
+  );
+  const humanColor = getHumanColor(state.gameState);
+  return (
+    <>
+      <div className="state-summary">
+        <Hidden mdUp>
+          <Button className="open-drawer-btn" onClick={openLeftDrawer}>
+            <ChevronLeftIcon />
+          </Button>
+        </Hidden>
+        {humanColor && (
+          <ResourceCards
+            playerState={state.gameState.player_state}
+            playerKey={playerKey(state.gameState, humanColor)}
+          />
+        )}
+      </div>
+      <div className="actions-toolbar">
+        {!(botsTurn || state.gameState.winning_color) && !replayMode && (
+          <PlayButtons gameState={state.gameState} />
+        )}
+        {(botsTurn || state.gameState.winning_color) && (
+          <Prompt gameState={state.gameState} isBotThinking={isBotThinking} />
+        )}
+        {/* <Button
+          disabled={disabled}
+          className="confirm-btn"
+          variant="contained"
+          color="primary"
+          onClick={onTick}
+        >
+          Ok
+        </Button> */}
+
+        {/* <Button onClick={zoomIn}>Zoom In</Button>
+      <Button onClick={zoomOut}>Zoom Out</Button> */}
+      </div>
+    </>
+  );
+}
+
+function OptionsButton({ menuListId, icon, children, items, disabled }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef(null);
+
+  const handleToggle = () => {
+    setOpen((prevOpen) => !prevOpen);
+  };
+  const handleClose = (onClick) => (event) => {
+    if (anchorRef.current && anchorRef.current.contains(event.target)) {
+      return;
+    }
+
+    onClick && onClick();
+    setOpen(false);
+  };
+  function handleListKeyDown(event) {
+    if (event.key === "Tab") {
+      event.preventDefault();
+      setOpen(false);
+    }
+  }
+  // return focus to the button when we transitioned from !open -> open
+  const prevOpen = useRef(open);
+  useEffect(() => {
+    if (prevOpen.current === true && open === false) {
+      anchorRef.current.focus();
+    }
+
+    prevOpen.current = open;
+  }, [open]);
+
+  return (
+    <React.Fragment>
+      <Button
+        disabled={disabled}
+        ref={anchorRef}
+        aria-controls={open ? menuListId : undefined}
+        aria-haspopup="true"
+        variant="contained"
+        color="secondary"
+        startIcon={icon}
+        onClick={handleToggle}
+      >
+        {children}
+      </Button>
+      <Popper
+        className="action-popover"
+        open={open}
+        anchorEl={anchorRef.current}
+        role={undefined}
+        transition
+        disablePortal
+      >
+        {({ TransitionProps, placement }) => (
+          <Grow
+            {...TransitionProps}
+            style={{
+              transformOrigin:
+                placement === "bottom" ? "center top" : "center bottom",
+            }}
+          >
+            <Paper>
+              <ClickAwayListener onClickAway={handleClose}>
+                <MenuList
+                  autoFocusItem={open}
+                  id={menuListId}
+                  onKeyDown={handleListKeyDown}
+                >
+                  {items.map((item) => (
+                    <MenuItem
+                      key={item.label}
+                      onClick={handleClose(item.onClick)}
+                      disabled={item.disabled}
+                    >
+                      {item.label}
+                    </MenuItem>
+                  ))}
+                </MenuList>
+              </ClickAwayListener>
+            </Paper>
+          </Grow>
+        )}
+      </Popper>
+    </React.Fragment>
+  );
+}
