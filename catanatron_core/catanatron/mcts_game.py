@@ -34,7 +34,7 @@ for number in numbers:
 
 class CatanGame(MCTS_Game):
     def __init__(self, players, board=None):
-        self.game = game.Game(players=players, catan_map=board, vps_to_win=10)
+        self.game = game.Game(players=players, catan_map=board, vps_to_win=5)
 
     def get_state(self) -> Any:
         return self.game.state
@@ -45,31 +45,36 @@ class CatanGame(MCTS_Game):
     def possible_actions(self):
         #get playable actions given state
         actions = self.game.state.playable_actions
+        #print(actions)
         action_prompt = self.get_state().current_prompt
         if action_prompt == ActionPrompt.BUILD_INITIAL_SETTLEMENT:
             actions.sort(reverse=True, key=lambda x:self.get_state().board.map.node_production[x.value])    
-            actions = actions[0:10]
+            actions = actions[0:8]
         return actions
     
     def take_action(self, action) -> None:
         #take action update state
-        self.game.execute(action, validate_action=False)
+        val_action = True
+        if action.action_type == ActionType.ROLL:
+            val_action = False  
+        self.game.execute(action, validate_action=val_action)
 
     def has_outcome(self) -> bool:
-        if self.game.winning_color() is None:
+        if ((self.game.winning_color() is None) and 
+            (self.game.state.num_turns < 1000)):
             return False
         return True
     
     def winner(self) -> game.List[int]:
-        if self.has_outcome():
-            return [self.current_player()]
-        return self.game.players
+        if self.game.winning_color() is not None:
+            return [self.game.state.color_to_index[self.game.winning_color()]]
+        return []
     
 if __name__ == "__main__":
     board = map.CatanMap.from_template(map.MINI_MAP_TEMPLATE)
     init_game = CatanGame(players=[WeightedRandomPlayer(Color.RED), WeightedRandomPlayer(Color.BLUE)], board=None)
     tree = UCT(game=init_game, allow_transpositions=False)
-    tree.self_play(iterations=100000)
+    tree.self_play(iterations=10000)
     #for key in tree.root.children.keys():
         #print(tree.root.children[key].n, tree.game.get_state().board.map.node_production[key.value])
     root = tree.root
@@ -82,6 +87,7 @@ if __name__ == "__main__":
                                 rolls[random.choices(numbers, probs_list)[0]])
                 else:
                     action = root.choose_random_action()
+        print(root.children.keys())
         print(action)
         root = root.children[action]
 

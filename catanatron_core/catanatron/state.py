@@ -491,6 +491,7 @@ def apply_action(state: State, action: Action):
         num_to_discard = len(hand) // 2
         if action.value is None:
             # TODO: Forcefully discard randomly so that decision tree doesnt explode in possibilities.
+            random.seed(42)
             discarded = random.sample(hand, k=num_to_discard)
         else:
             discarded = action.value  # for replay functionality
@@ -501,12 +502,15 @@ def apply_action(state: State, action: Action):
         action = Action(action.color, action.action_type, discarded)
 
         # Advance turn
-        discarders_left = [
-            player_num_resource_cards(state, color) > 7 for color in state.colors
-        ][state.current_player_index + 1 :]
-        if any(discarders_left):
-            to_skip = discarders_left.index(True)
-            state.current_player_index = state.current_player_index + 1 + to_skip
+        discarders = [
+                player_num_resource_cards(state, color) > state.discard_limit
+                for color in state.colors
+            ]
+        # print(discarders)
+        if any(discarders):
+            state.current_player_index = discarders.index(True)
+            state.current_prompt = ActionPrompt.DISCARD
+            state.is_discarding = True
             # state.current_prompt stays the same
         else:
             state.current_player_index = state.current_turn_index
@@ -515,6 +519,7 @@ def apply_action(state: State, action: Action):
             state.is_moving_knight = True
 
         state.playable_actions = generate_playable_actions(state)
+        # print(state.playable_actions)
     elif action.action_type == ActionType.MOVE_ROBBER:
         (coordinate, robbed_color, robbed_resource) = action.value
         state.board.robber_coordinate = coordinate
@@ -596,6 +601,7 @@ def apply_action(state: State, action: Action):
         )
         asking = freqdeck_from_listdeck(trade_offer[-1:])
         if not player_resource_freqdeck_contains(state, action.color, offering):
+            print(action)
             raise ValueError("Trying to trade without money")
         if not freqdeck_contains(state.resource_freqdeck, asking):
             raise ValueError("Bank doenst have those cards")

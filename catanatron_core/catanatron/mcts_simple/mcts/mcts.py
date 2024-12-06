@@ -6,8 +6,9 @@ import random
 from copy import deepcopy
 from tqdm.auto import tqdm
 from typing import List, Dict, Union, Optional
-from catanatron.models.enums import ActionType, Action
+from catanatron.models.enums import ActionType, Action, RESOURCES
 from catanatron.models.map import build_dice_probas
+from catanatron.state_functions import player_key
 
 DICE_PROBS = build_dice_probas()
 
@@ -45,7 +46,7 @@ class Node:
     def eval(self, training: bool) -> float:
         return self.w / self.n if self.n > 0 else float("inf") if training else 0.
 
-    def add_child(self, next_player: int, next_state: str, action: int) -> None:
+    def add_child(self, next_player: int, next_state, action: int) -> None:
         if action not in self.children:
             if self.transposition_table is not None:
                 key = (next_player, next_state)
@@ -63,15 +64,24 @@ class Node:
         return random.sample(list(self.children), 1)[0]
 
 class MCTS:
-    def __init__(self, game: Game, allow_transpositions: bool = True, training: bool = True):
+    def __init__(self, game: Game, allow_transpositions: bool = False, training: bool = True):
         self.game = game
         self.copied_game = deepcopy(self.game)
 
         self.transposition_table = dict() if allow_transpositions is True else None
-        self.root = Node(self.game.current_player(), str(self.game.get_state()), transposition_table = self.transposition_table)
+        self.root = Node(self.game.current_player(), self.game.get_state(), transposition_table = self.transposition_table)
         if self.transposition_table is not None:
             self.transposition_table[(self.game.current_player(), str(self.game.get_state()))] = self.root
         self.training = training
+
+    def update_root(self, action):
+        if action in self.root.children:
+            self.root = self.root.children[action]
+            self.game.take_action(action)
+            self.copied_game = deepcopy(self.game)
+        else:
+            raise ValueError("Action not found in current root's children")
+    
         
     def selection(self, node: Node) -> List[Node]:
         path = [node]
@@ -86,7 +96,7 @@ class MCTS:
         return path
 
     def expansion(self, path: List[Node]) -> List[Node]:
-        if path[-1].is_expanded is False and path[-1].has_outcome is False and len(path) < 20:
+        if path[-1].is_expanded is False and path[-1].has_outcome is False:
             for action in self.copied_game.possible_actions():
                 if action.action_type == ActionType.ROLL:
                     path[-1].add_child(self.copied_game.current_player(), self.copied_game.get_state(), action)
@@ -110,7 +120,6 @@ class MCTS:
                 action = Action(action.color, action.action_type, 
                                 rolls[random.choices(numbers, probs_list)[0]])
                 path.append(path[-1].children[action])
-
             self.copied_game.take_action(action)
         return path
 
@@ -134,7 +143,8 @@ class MCTS:
             path[0].n += 1
             for i in range(1, len(path)):
                 if number_of_winners > 0:
-                    path[i].w += (path[i - 1].player in winners) / number_of_winners
+                    if path[i].player == winners[0]:
+                        path[i].w += 1
                 path[i].n += 1
             path[-1].has_outcome = True
 

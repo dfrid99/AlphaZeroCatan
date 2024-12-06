@@ -6,11 +6,11 @@ from typing import List, Dict, Optional
 
 class UCTNode(Node):
     # Note that exploration term is only included in choose_best_action() method and not in eval()
-    def __init__(self, player: int, state: str, prev_node: Optional[UCTNode] = None, transposition_table: Optional[Dict[tuple, str]] = None, c: float = 2 ** 0.5):
+    def __init__(self, player: int, state, prev_node: Optional[UCTNode] = None, transposition_table: Optional[Dict[tuple, str]] = None, c: float = 2 ** 0.5):
         super().__init__(player, state, prev_node, transposition_table)
         self.c = c
 
-    def add_child(self, next_player: int, next_state: str, action: int) -> None:
+    def add_child(self, next_player: int, next_state, action: int) -> None:
         if action not in self.children:
             if self.transposition_table is not None:
                 key = (next_player, next_state)
@@ -31,9 +31,9 @@ class UCT(MCTS):
 
         self.transposition_table = dict() if allow_transpositions is True else None
         self.c = c
-        self.root = UCTNode(self.game.current_player(), str(self.game.get_state()), transposition_table = self.transposition_table, c = self.c)
+        self.root = UCTNode(self.game.current_player(), self.game.get_state(), transposition_table = self.transposition_table, c = self.c)
         if self.transposition_table is not None:
-            self.transposition_table[(self.game.current_player(), str(self.game.get_state()))] = self.root
+            self.transposition_table[(self.game.current_player(), self.game.get_state())] = self.root
         self.training = training
 
     def selection(self, node: UCTNode) -> List[UCTNode]:

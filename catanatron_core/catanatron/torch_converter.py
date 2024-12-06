@@ -70,6 +70,10 @@ probs_list = []
 for number in numbers:
     probs_list.append(DICE_PROBS[number])
 
+def number_to_tensor(number, num_channels=4):
+    prob = DICE_PROBS.get(number, 0)
+    sign = 1 if number <= 7 else -1
+    return torch.full((num_channels,), prob * sign)
 
 def in_player_building(node, buildings):
     for building in buildings:
@@ -91,9 +95,6 @@ def state_to_tensor(state, board_embed, resources_embed):
     opposing_player = 0 if current_player == 1 else 1
     buildings = state.buildings_by_color
     for coords in board.land_tiles:
-        # height = center[0] + coords[0]
-        # width = center[1] + coords[1]
-        # board[height, width, :4] = 1
         if state.board.robber_coordinate == coords:
             robber = True
         else:
@@ -129,28 +130,45 @@ def state_to_tensor(state, board_embed, resources_embed):
             width = center[1] + 4*coords[0]
         board_embed[0:4,height,width] = resources_embed(torch.tensor([resources[tile.resource]]))
         if robber:
-            board_embed[4,height,width] = 1
+            board_embed[4,height,width].fill_(1)
         for settle in settles['current']:
-            board_embed[0:4, height+settle[0], width+settle[1]] = 1
+            board_embed[0:4, height+settle[0], width+settle[1]].fill_(1)
         for settle in settles['opposing']:
-            board_embed[0:4, height+settle[0], width+settle[1]] = -1
+            board_embed[0:4, height+settle[0], width+settle[1]].fill_(-1)
         for road in roads['current']:
-            board_embed[0:4, height+road[0], width+road[1]] = 1
+            board_embed[0:4, height+road[0], width+road[1]].fill_(1)
         for road in roads['opposing']:
-            board_embed[0:4, height+road[0], width+road[1]] = -1
+            board_embed[0:4, height+road[0], width+road[1]].fill_(-1)
         current_vps = state.player_state[f"P{current_player}_VICTORY_POINTS"]
         opponent_vps = state.player_state[f"P{opposing_player}_VICTORY_POINTS"]
-        board_embed[5] = current_vps
-        board_embed[6] = opponent_vps
+        board_embed[5].fill_(current_vps)
+        board_embed[6].fill_(opponent_vps)
         if state.player_state[f"P{current_player}_HAS_ROAD"]:
-            board_embed[7] = 1
+            board_embed[7].fill_(1)
         if state.player_state[f"P{opposing_player}_HAS_ROAD"]:
-            board_embed[7] = -1
+            board_embed[7].fill_(-1)
 
         if state.player_state[f"P{current_player}_HAS_ARMY"]:
-            board_embed[8] = 1
+            board_embed[8].fill_(1)
         if state.player_state[f"P{opposing_player}_HAS_ARMY"]:
-            board_embed[8] = -1
+            board_embed[8].fill_(-1)
+        board_embed[9].fill_(state.player_state[f"P{current_player}_DEVELOPMENT_CARDS"])
+        board_embed[10].fill_(state.player_state[f"P{opposing_player}_DEVELOPMENT_CARDS"])
+        for i, resource in enumerate(RESOURCES):
+            board_embed[11 + i].fill_(state.player_state[f"P{current_player}_{resource}_IN_HAND"])
+            board_embed[16 + i].fill_(state.player_state[f"P{opposing_player}_{resource}_IN_HAND"])
+
+        # Encode development cards for both players
+        for i, dev_card in enumerate(DEVELOPMENT_CARDS):
+            board_embed[21 + i].fill_(state.player_state[f"P{current_player}_{dev_card}_IN_HAND"])
+
+        # Encode played development cards for both players
+        for i, dev_card in enumerate(DEVELOPMENT_CARDS):
+            board_embed[26 + i].fill_(state.player_state[f"P{current_player}_PLAYED_{dev_card}"])
+            board_embed[31 + i].fill_(state.player_state[f"P{opposing_player}_PLAYED_{dev_card}"])
+
+        # Add a channel for the total number of development cards the opponent has (which is public information)
+        board_embed[36].fill_(sum(state.player_state[f"P{opposing_player}_{dev_card}_IN_HAND"] for dev_card in DEVELOPMENT_CARDS))
 
     return board_embed
 
@@ -158,17 +176,22 @@ def state_to_tensor(state, board_embed, resources_embed):
 def actions_to_tensor(root):
     actions_embed = torch.zeros(10)
     actions_board_embed = torch.zeros(7,13)
+    state = root.state
     for action in root.children:
         prob = root.children[action].n/root.n
         if action.action_type == ActionType.END_TURN:
-            actions_embed[0] += prob    
-        if action.action_type == ActionType.BUILD_SETTLEMENT:
-            actions_embed[1] += prob
-            node_id = action.value
-        if action.action_type == ActionType.BUILD_CITY:
-            actions_embed[2] += prob
-        if action.action_type == ActionType.BUILD_ROAD:
-            actions_embed[3] += prob
+            actions_embed[0] += prob
+        if action.action_type in [ActionType.BUILD_SETTLEMENT, ActionType.MOVE_ROBBER,
+                                  ActionType.BUILD_CITY, ActionType.BUILD_ROAD]:
+            if action.action_type == ActionType.BUILD_SETTLEMENT:
+                actions_embed[1] += prob
+            if action.action_type == ActionType.BUILD_CITY:
+                actions_embed[2] += prob
+            if action.action_type == ActionType.BUILD_ROAD:
+                actions_embed[3] += prob
+            if action.action_type == ActionType.MOVE_ROBBER:
+                actions_embed[3] += prob
+        
         if action.action_type == ActionType.BUY_DEVELOPMENT_CARD:
             actions_embed[4] += prob
         if action.action_type == ActionType.PLAY_KNIGHT_CARD:
@@ -181,4 +204,5 @@ def actions_to_tensor(root):
             actions_embed[8] += prob
         if action.action_type == ActionType.ROLL:
             actions_embed[9] += prob
+        
     return actions_embed

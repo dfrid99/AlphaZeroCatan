@@ -314,6 +314,7 @@ def player_deck_replenish(state, color, resource, amount=1):
 
 def player_deck_random_draw(state, color):
     deck_array = player_deck_to_array(state, color)
+    random.seed(42)
     resource = random.choice(deck_array)
     player_deck_draw(state, color, resource)
     return resource
